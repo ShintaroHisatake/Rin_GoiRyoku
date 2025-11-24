@@ -7,7 +7,7 @@
 
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>3語句学習アプリ</title>
+  <title>語句学習アプリ</title>
 
   <!-- ライブラリ読み込み -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -20,17 +20,31 @@
 <body class="bg-slate-50">
   <div id="root" class="min-h-screen"></div>
 
-  <script type="text/babel" data-presets="react">
-    const { useEffect, useMemo, useState } = React;
+  <!-- JS エラーが出たら画面に表示する -->
+  <script>
+    window.onerror = function (message, source, lineno, colno, error) {
+      var root = document.getElementById("root");
+      if (!root) return;
+      root.innerHTML =
+        '<div style="padding:16px;font-family:monospace;color:#b91c1c;white-space:pre-wrap;">'
+        + 'JavaScript エラーが発生しました:\\n'
+        + message + '\\n'
+        + (error && error.stack ? error.stack : '')
+        + '</div>';
+    };
+  </script>
 
-    // ========= モード・グループ定義 =========
-    const Modes = { VIEW: "VIEW", MCQ: "MCQ" }; // モード1/2
+  <script type="text/babel" data-presets="env,react">
+    const { useEffect, useState } = React;
+
+    const Modes = { VIEW: "VIEW", MCQ: "MCQ" };
     const Groups = { DAY: "DAY", WEEK: "WEEK" };
 
-    // ========= JSON 読み込み =========
     const fetchJson = async (path) => {
       const res = await fetch(path, { cache: "no-store" });
-      if (!res.ok) throw new Error(path + " を取得できません（" + res.status + "）");
+      if (!res.ok) {
+        throw new Error(path + " を取得できません（" + res.status + "）");
+      }
       return await res.json();
     };
 
@@ -45,11 +59,10 @@
       return a;
     };
 
-    // ========= ルートコンポーネント =========
     function App() {
       const [data, setData] = useState(null);
       const [error, setError] = useState("");
-      const [loading, setLoading] = useState(false);
+      const [loading, setLoading] = useState(true);
 
       const [group, setGroup] = useState(Groups.DAY);
       const [dayId, setDayId] = useState("DAY1");
@@ -58,15 +71,15 @@
       useEffect(() => {
         (async () => {
           try {
-            setLoading(true);
+            console.log("JSON読み込み開始");
             const j = await fetchJson("./data/week1.json");
-            // 形が想定と違っていたらエラーにする
+            console.log("JSON読み込み結果:", j);
             if (!j || !j.days || !Array.isArray(j.days)) {
               throw new Error("week1.json の形式が想定と違います（days 配列がありません）");
             }
             setData(j);
           } catch (e) {
-            console.error(e);
+            console.error("読み込みエラー", e);
             setError(e.message || String(e));
           } finally {
             setLoading(false);
@@ -74,17 +87,8 @@
         })();
       }, []);
 
-      if (loading || !data) {
-        return (
-          <div className="p-6 text-slate-600">
-            データ読み込み中…
-            {error && (
-              <div className="mt-4 text-red-600 whitespace-pre-wrap">
-                エラー: {error}
-              </div>
-            )}
-          </div>
-        );
+      if (loading) {
+        return <div className="p-6 text-slate-600">データ読み込み中…</div>;
       }
 
       if (error) {
@@ -93,31 +97,23 @@
             <h1 className="text-2xl font-bold mb-3">読み込みエラー</h1>
             <p className="text-red-600 whitespace-pre-wrap">{error}</p>
             <p className="mt-3 text-sm text-slate-600">
-              次を確認してください：
-              <br />・リポジトリ直下に <code>data/week1.json</code> があるか
-              <br />・JSON の最初と最後に余計なカンマがないか
+              ・リポジトリ直下に <code>data/week1.json</code> があるか<br/>
+              ・JSON に余計なカンマや全角記号が紛れていないか
             </p>
           </div>
         );
       }
 
-      // ---- ここから通常画面 ----
-
       const days = data.days || [];
-      const dayOptions = days.map(function (d) {
-        return { value: d.id, label: d.label };
-      });
+      const dayOptions = days.map((d) => ({ value: d.id, label: d.label }));
 
-      const activeItems = useMemo(
-        function () {
-          if (group === Groups.WEEK) {
-            return (data.week && data.week.items) ? data.week.items : [];
-          }
-          const day = days.find(function (d) { return d.id === dayId; });
-          return day ? (day.items || []) : [];
-        },
-        [data, group, dayId]
-      );
+      let activeItems = [];
+      if (group === Groups.WEEK) {
+        activeItems = (data.week && data.week.items) ? data.week.items : [];
+      } else {
+        const day = days.find((d) => d.id === dayId);
+        activeItems = day ? (day.items || []) : [];
+      }
 
       return (
         <div className="max-w-5xl mx-auto p-6 grid gap-6">
@@ -127,8 +123,7 @@
               <select
                 className="px-3 py-2 rounded-xl border bg-white"
                 value={group}
-                onChange={function (e) { setGroup(e.target.value); }}
-                title="Day/Week切替"
+                onChange={(e) => setGroup(e.target.value)}
               >
                 <option value={Groups.DAY}>Dayごと</option>
                 <option value={Groups.WEEK}>週ごと（全体）</option>
@@ -138,24 +133,18 @@
                 <select
                   className="px-3 py-2 rounded-xl border bg-white"
                   value={dayId}
-                  onChange={function (e) { setDayId(e.target.value); }}
-                  title="Day選択"
+                  onChange={(e) => setDayId(e.target.value)}
                 >
-                  {dayOptions.map(function (opt) {
-                    return (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    );
-                  })}
+                  {dayOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               )}
 
               <select
                 className="px-3 py-2 rounded-xl border bg-white"
                 value={mode}
-                onChange={function (e) { setMode(e.target.value); }}
-                title="モード選択"
+                onChange={(e) => setMode(e.target.value)}
               >
                 <option value={Modes.VIEW}>モード1：語句・意味・例文を表示</option>
                 <option value={Modes.MCQ}>モード2：意味→語句（10択）</option>
@@ -178,9 +167,7 @@
       );
     }
 
-    // ========= モード1：閲覧 =========
-    function ModeView(props) {
-      const items = props.items || [];
+    function ModeView({ items }) {
       const [i, setI] = useState(0);
       const total = items.length;
 
@@ -221,21 +208,13 @@
           <div className="flex items-center justify-between">
             <button
               className="px-4 py-2 rounded-xl border bg-white"
-              onClick={function () {
-                setI(function (v) {
-                  return v - 1 < 0 ? total - 1 : v - 1;
-                });
-              }}
+              onClick={() => setI((v) => (v - 1 < 0 ? total - 1 : v - 1))}
             >
               ← 前へ
             </button>
             <button
               className="px-4 py-2 rounded-xl bg-slate-900 text-white"
-              onClick={function () {
-                setI(function (v) {
-                  return v + 1 >= total ? 0 : v + 1;
-                });
-              }}
+              onClick={() => setI((v) => (v + 1 >= total ? 0 : v + 1))}
             >
               次へ →
             </button>
@@ -244,19 +223,17 @@
       );
     }
 
-    // ========= モード2：10択クイズ =========
-    function ModeMCQ(props) {
-      const items = props.items || [];
-      const [order, setOrder] = useState(function () {
-        return shuffle(items.map(function (_, i) { return i; }));
-      });
+    function ModeMCQ({ items }) {
+      const [order, setOrder] = useState(() =>
+        shuffle(items.map((_, i) => i))
+      );
       const [qIdx, setQIdx] = useState(0);
       const [selected, setSelected] = useState(null);
       const [correct, setCorrect] = useState(null);
       const [score, setScore] = useState(0);
 
-      useEffect(function () {
-        setOrder(shuffle(items.map(function (_, i) { return i; })));
+      useEffect(() => {
+        setOrder(shuffle(items.map((_, i) => i)));
         setQIdx(0);
         setSelected(null);
         setCorrect(null);
@@ -271,33 +248,25 @@
       const currentIndex = order[qIdx];
       const current = items[currentIndex];
 
-      // 選択肢（最大10個）
-      const optionIndices = useMemo(
-        function () {
-          const indices = items.map(function (_, i) { return i; });
-          const others = indices.filter(function (i) { return i !== currentIndex; });
-          const distractors = shuffle(others).slice(0, 9);
-          return shuffle([currentIndex].concat(distractors));
-        },
-        [items, currentIndex]
-      );
+      const optionIndices = React.useMemo(() => {
+        const indices = items.map((_, i) => i);
+        const others = indices.filter((i) => i !== currentIndex);
+        const distractors = shuffle(others).slice(0, 9);
+        return shuffle([currentIndex, ...distractors]);
+      }, [items, currentIndex]);
 
-      const submit = function (choiceIdx) {
-        if (correct !== null) return; // すでに回答済み
-        setSelected(choiceIdx);
-        const ok = (choiceIdx === currentIndex);
+      const submit = (idx) => {
+        if (correct !== null) return;
+        setSelected(idx);
+        const ok = idx === currentIndex;
         setCorrect(ok);
-        if (ok) {
-          setScore(function (s) { return s + 1; });
-        }
+        if (ok) setScore((s) => s + 1);
       };
 
-      const nextQ = function () {
+      const nextQ = () => {
         setSelected(null);
         setCorrect(null);
-        setQIdx(function (v) {
-          return v + 1 >= order.length ? 0 : v + 1;
-        });
+        setQIdx((v) => (v + 1 >= order.length ? 0 : v + 1));
       };
 
       return (
@@ -317,10 +286,10 @@
           </div>
 
           <ol className="grid md:grid-cols-2 gap-3">
-            {optionIndices.map(function (idx, i) {
+            {optionIndices.map((idx, i) => {
               const term = items[idx].term;
-              const isChosen = (selected !== null && idx === selected);
-              const isAnswer = (selected !== null && idx === currentIndex);
+              const isChosen = selected !== null && idx === selected;
+              const isAnswer = selected !== null && idx === currentIndex;
               let cls = "w-full text-left px-4 py-3 rounded-xl border transition ";
               if (isAnswer) {
                 cls += "bg-emerald-50 border-emerald-300";
@@ -333,7 +302,7 @@
                 <li key={i}>
                   <button
                     className={cls}
-                    onClick={function () { submit(idx); }}
+                    onClick={() => submit(idx)}
                     disabled={selected !== null}
                   >
                     <span className="mr-2 font-mono text-slate-500">
