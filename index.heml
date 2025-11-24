@@ -1,0 +1,98 @@
+# -*- coding: utf-8 -*-
+"""
+week1.pdf を OCR して素データを作り、手直ししやすい JSON にまとめます。
+初回は「推定抽出（粗い）」→ data/week1_raw.json と
+人手整形用の「雛形」→ data/week1.json を同時に生成します。
+"""
+import json, os, re
+from pathlib import Path
+from pdf2image import convert_from_path
+import pytesseract
+from PIL import Image
+
+PDF_PATH = Path("week1.pdf")             # 先に同階層に置く（GitHubなら /data ではなく scripts/ の外に）
+OUT_DIR  = Path("data")
+OUT_DIR.mkdir(exist_ok=True, parents=True)
+
+DAY_SPLIT = {
+    # ページ番号は 1 始まり。ファイルの実ページ区切りに合わせて調整してください。
+    # ここではアップロードPDFの12ページを DAY1-6×2ページ の想定にセットしています。
+    "DAY1": [1,2],
+    "DAY2": [3,4],
+    "DAY3": [5,6],
+    "DAY4": [7,8],
+    "DAY5": [9,10],
+    "DAY6": [11,12],
+}
+
+def ocr_image(img: Image.Image) -> str:
+    # 高解像度化 & 二値化の軽い前処理
+    img = img.convert("L")
+    text = pytesseract.image_to_string(img, lang="jpn")
+    return text
+
+def parse_candidates(text: str):
+    """
+    ゆるいヒューリスティクス。
+    - 語句: 行頭/括弧/太字っぽい単語は抽出が難しいため、ひらがな/カタカナ/漢字の連続を候補に。
+    - 意味/例文: 「。」や「〜する」「…こと」を含む短文を候補に。
+    最終的には人手で week1.json を整形する前提。
+    """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    # 候補語句：記号を除いた短い日本語トークン
+    word_re = re.compile(r"^[\u3040-\u30FF\u4E00-\u9FFF]{2,8}$")
+    sentence_re = re.compile(r".+。$")
+    words = [l for l in lines if word_re.match(l)]
+    sentences = [l for l in lines if sentence_re.match(l)]
+    return {"words": words, "sentences": sentences, "raw_lines": lines}
+
+def main():
+    if not PDF_PATH.exists():
+      raise SystemExit(f"PDF not found: {PDF_PATH.resolve()}")
+
+    print("Converting PDF -> images...")
+    pages = convert_from_path(str(PDF_PATH), dpi=300)
+
+    days = []
+    week_items = []
+
+    raw_dump = {}
+
+    for day_id, page_ids in DAY_SPLIT.items():
+        all_text = []
+        for p in page_ids:
+            img = pages[p-1]
+            txt = ocr_image(img)
+            all_text.append(txt)
+            raw_dump[f"{day_id}-p{p}"] = txt
+
+        text = "\n".join(all_text)
+        cands = parse_candidates(text)
+
+        # ざっくり雛形（初期は語句候補だけ入れておく）
+        items = []
+        for w in cands["words"][:20]:  # 最初の候補20件に制限（後で人手整形）
+            items.append({"term": w, "meaning": "", "example": ""})
+
+        days.append({"id": day_id, "label": day_id.replace("DAY","DAY "), "items": items})
+        week_items.extend(items)
+
+    # 生OCRも保存（確認用）
+    with open(OUT_DIR/"week1_raw.json", "w", encoding="utf-8") as f:
+        json.dump(raw_dump, f, ensure_ascii=False, indent=2)
+
+    # 雛形データ
+    out = {
+        "meta": {"title": "Week 1 語句（雛形）", "source": str(PDF_PATH)},
+        "days": days,
+        "week": {"id": "WEEK1", "items": week_items}
+    }
+    with open(OUT_DIR/"week1.json", "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=2)
+
+    print("Generated:")
+    print(f" - {OUT_DIR/'week1_raw.json'}  # ページごとの生OCR")
+    print(f" - {OUT_DIR/'week1.json'}      # アプリで読む雛形（要整形）")
+
+if __name__ == "__main__":
+    main()
