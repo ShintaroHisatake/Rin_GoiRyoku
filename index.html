@@ -7,67 +7,38 @@
 
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>語句学習アプリ</title>
+  <title>4語句学習アプリ</title>
 
-  <!-- ライブラリ読み込み -->
+  <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <meta name="color-scheme" content="light only"/>
 </head>
 <body class="bg-slate-50">
   <div id="root" class="min-h-screen"></div>
 
-  <!-- JS エラーが出たら画面に表示する -->
-  <script>
-    window.onerror = function (message, source, lineno, colno, error) {
-      var root = document.getElementById("root");
-      if (!root) return;
-      root.innerHTML =
-        '<div style="padding:16px;font-family:monospace;color:#b91c1c;white-space:pre-wrap;">'
-        + 'JavaScript エラーが発生しました:\n'
-        + message + '\n'
-        + (error && error.stack ? error.stack : '')
-        + '</div>';
-    };
-  </script>
+  <script type="text/babel" data-presets="react">
+    const { useEffect, useMemo, useRef, useState } = React;
 
-  <script type="text/babel" data-presets="env,react">
-    const { useEffect, useState } = React;
-
-    // ==== モード・グループ定義 ====
-    const Modes = { VIEW: "VIEW", MCQ: "MCQ", FILL: "FILL" };
+    // ================== 定数 ==================
+    const Modes = { VIEW: "VIEW", MCQ: "MCQ", CLOZE: "CLOZE" };   // モード1/2/3
     const Groups = { DAY: "DAY", WEEK: "WEEK" };
 
-    // 利用する JSON ファイルの一覧（必要に応じて追加）
+    // 利用する JSON ファイル一覧（必要ならここに追加）
     const DATASETS = [
-      { id: "week1", label: "Week 1", path: "./data/week1.json" },
-      { id: "week2", label: "Week 2", path: "./data/week2.json" },
-      { id: "week3", label: "Week 3", path: "./data/week3.json" }, 
- { id: "week4", label: "Week 4", path: "./data/week4.json" },
-      { id: "week5", label: "Week 5", path: "./data/week5.json" },
-        { id: "week6", label: "Week 6", path: "./data/week6.json" },
-          { id: "week7", label: "Week 7", path: "./data/week7.json" },
-            { id: "week8", label: "Week 8", path: "./data/week8.json" },
-              { id: "week9", label: "Week 9", path: "./data/week9.json" },
-               { id: "week10", label: "Week 10", path: "./data/week10.json" },
-                 { id: "week11", label: "Week 11", path: "./data/week11.json" },
-                   { id: "week12", label: "Week 12", path: "./data/week12.json" },
-                    { id: "week13", label: "Week 13", path: "./data/week13.json" },
-                     { id: "week14", label: "Week 14", path: "./data/week14.json" },
-                       { id: "week15", label: "Week 15", path: "./data/week15.json" },
-                         { id: "week16", label: "Week 16", path: "./data/week16.json" },
-                            { id: "week17", label: "Week 17", path: "./data/week17.json" },
-                              { id: "week18", label: "Week 18", path: "./data/week18.json" }// まだ無ければ後で追加
+      { id: "week1",  label: "Week 1",  path: "./data/week1.json" },
+      { id: "week2",  label: "Week 2",  path: "./data/week2.json" },
+      { id: "week13", label: "Week 13", path: "./data/week13.json" },
+      { id: "week14", label: "Week 14", path: "./data/week14.json" },
+      { id: "week16", label: "Week 16", path: "./data/week16.json" }
     ];
 
+    // ================== ユーティリティ ==================
     const fetchJson = async (path) => {
       const res = await fetch(path, { cache: "no-store" });
-      if (!res.ok) {
-        throw new Error(path + " を取得できません（" + res.status + "）");
-      }
+      if (!res.ok) throw new Error(`${path} を取得できません（${res.status}）`);
       return await res.json();
     };
 
@@ -75,60 +46,58 @@
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        const tmp = a[i];
+        const t = a[i];
         a[i] = a[j];
-        a[j] = tmp;
+        a[j] = t;
       }
       return a;
     };
 
-    // 例文の中の語句を「（　　　）」に差し替える
-    function makeBlankExample(example, term) {
-      if (!example) return "";
-      if (!term) return example;
-      const idx = example.indexOf(term);
-      if (idx === -1) {
-        // 見つからない場合は最後に空欄を付ける
-        return example.replace(/。?$/, "（　　　）$&");
+    const uniqByTerm = (items) => {
+      const map = {};
+      for (let i = 0; i < items.length; i++) {
+        const key = items[i].term || ("__idx__" + i);
+        map[key] = items[i];
       }
-      return (
-        example.slice(0, idx) +
-        "（　　　）" +
-        example.slice(idx + term.length)
-      );
-    }
+      return Object.values(map);
+    };
 
-    // ========= ルートコンポーネント =========
+    // 例文から空欄文を作る（最初に出てきた term を「＿＿＿＿」に置換）
+    const makeClozeSentence = (example, term) => {
+      if (!example || !term) return example || "";
+      const idx = example.indexOf(term);
+      if (idx === -1) return example; // 見つからなければそのまま
+      return example.slice(0, idx) + "＿＿＿＿" + example.slice(idx + term.length);
+    };
+
+    // ================== ルートコンポーネント ==================
     function App() {
-      const [datasetId, setDatasetId] = useState("week1");
+      const [datasetId, setDatasetId] = useState(DATASETS[0].id);
       const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(false);
       const [error, setError] = useState("");
-      const [loading, setLoading] = useState(true);
+      const [group, setGroup] = useState(Groups.DAY); // DAY or WEEK
+      const [dayId, setDayId] = useState("DAY1");     // DAY選択
+      const [mode, setMode] = useState(Modes.VIEW);   // VIEW / MCQ / CLOZE
 
-      const [group, setGroup] = useState(Groups.DAY);
-      const [dayId, setDayId] = useState("DAY1");
-      const [mode, setMode] = useState(Modes.VIEW);
-
-      // データセット読み込み
+      // データ読み込み
       useEffect(() => {
+        const ds = DATASETS.find(d => d.id === datasetId);
+        if (!ds) return;
+        setLoading(true);
+        setError("");
+        setData(null);
         (async () => {
-          setLoading(true);
-          setError("");
-          setData(null);
           try {
-            const ds = DATASETS.find(d => d.id === datasetId);
-            if (!ds) throw new Error("不明なデータセットです: " + datasetId);
             const j = await fetchJson(ds.path);
-            if (!j || !j.days || !Array.isArray(j.days)) {
-              throw new Error("JSON の形式が想定と違います（days 配列がありません）");
-            }
             setData(j);
-            // DAY はそのデータの先頭にリセット
-            if (j.days && j.days.length > 0) {
-              setDayId(j.days[0].id);
+            // 初期 dayId
+            if (j && Array.isArray(j.days) && j.days.length > 0) {
+              setDayId(j.days[0].id || "DAY1");
+            } else {
+              setDayId("DAY1");
             }
           } catch (e) {
-            console.error("読み込みエラー", e);
             setError(e.message || String(e));
           } finally {
             setLoading(false);
@@ -136,65 +105,100 @@
         })();
       }, [datasetId]);
 
-      const days = data && data.days ? data.days : [];
-      const dayOptions = days.map((d) => ({ value: d.id, label: d.label }));
+      const dayOptions = useMemo(() => {
+        if (!data || !Array.isArray(data.days)) return [];
+        return data.days.map(d => ({
+          value: d.id,
+          label: d.label || d.id
+        }));
+      }, [data]);
 
-      // WEEK のときは days 全部を連結（week.items が空でも動くように）
-      let activeItems = [];
-      if (data) {
+      // 出題範囲（items）を決定（week.items は使わない）
+      const activeItems = useMemo(() => {
+        if (!data || !Array.isArray(data.days)) return [];
+
         if (group === Groups.WEEK) {
-          if (data.week && Array.isArray(data.week.items) && data.week.items.length > 0) {
-            activeItems = data.week.items;
-          } else {
-            days.forEach((d) => {
-              if (Array.isArray(d.items)) {
-                activeItems = activeItems.concat(d.items);
+          // 週ごと：全DAYの items をまとめる（week.items は使わない）
+          const all = [];
+          for (let i = 0; i < data.days.length; i++) {
+            const d = data.days[i];
+            if (Array.isArray(d.items)) {
+              for (let j = 0; j < d.items.length; j++) {
+                all.push(d.items[j]);
               }
-            });
+            }
           }
-        } else {
-          const day = days.find((d) => d.id === dayId);
-          activeItems = day && Array.isArray(day.items) ? day.items : [];
+          return uniqByTerm(all);
         }
+
+        // Dayごと：選択された DAY だけ
+        const day = (data.days || []).find(d => d.id === dayId);
+        if (!day || !Array.isArray(day.items)) return [];
+        return day.items;
+      }, [data, group, dayId]);
+
+      if (error) {
+        return (
+          <div className="max-w-3xl mx-auto p-6">
+            <h1 className="text-2xl font-bold mb-3">読み込みエラー</h1>
+            <p className="text-red-600 whitespace-pre-wrap">{error}</p>
+          </div>
+        );
       }
 
-      const currentDatasetLabel =
-        DATASETS.find(d => d.id === datasetId)?.label || datasetId;
+      if (loading || !data) {
+        return (
+          <div className="min-h-screen flex items-center justify-center text-slate-700">
+            データ読み込み中…
+          </div>
+        );
+      }
+
+      const metaTitle = data.meta && data.meta.title ? data.meta.title : "語句データ";
 
       return (
         <div className="max-w-5xl mx-auto p-6 grid gap-6">
           <header className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold">語句学習アプリ</h1>
+            <div className="grid gap-1">
+              <h1 className="text-2xl md:text-3xl font-bold">語句学習アプリ</h1>
+              <p className="text-xs text-slate-500">
+                データセット：{metaTitle}
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               {/* データセット選択 */}
               <select
-                className="px-3 py-2 rounded-xl border bg-white"
+                className="px-3 py-2 rounded-xl border bg-white text-sm"
                 value={datasetId}
                 onChange={(e) => setDatasetId(e.target.value)}
-                title="週データ選択"
+                title="Week の選択"
               >
                 {DATASETS.map(ds => (
                   <option key={ds.id} value={ds.id}>{ds.label}</option>
                 ))}
               </select>
 
-              {/* Day / Week */}
+              {/* Day / Week 切り替え */}
               <select
-                className="px-3 py-2 rounded-xl border bg-white"
+                className="px-3 py-2 rounded-xl border bg-white text-sm"
                 value={group}
                 onChange={(e) => setGroup(e.target.value)}
+                title="Day/Week切替"
               >
                 <option value={Groups.DAY}>Dayごと</option>
                 <option value={Groups.WEEK}>週ごと（全体）</option>
               </select>
 
+              {/* Day 選択（Dayモードのときだけ） */}
               {group === Groups.DAY && (
                 <select
-                  className="px-3 py-2 rounded-xl border bg-white"
+                  className="px-3 py-2 rounded-xl border bg-white text-sm"
                   value={dayId}
                   onChange={(e) => setDayId(e.target.value)}
+                  title="Day選択"
                 >
-                  {dayOptions.map((opt) => (
+                  {dayOptions.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
@@ -202,42 +206,27 @@
 
               {/* モード選択 */}
               <select
-                className="px-3 py-2 rounded-xl border bg-white"
+                className="px-3 py-2 rounded-xl border bg-white text-sm"
                 value={mode}
                 onChange={(e) => setMode(e.target.value)}
+                title="モード選択"
               >
-                <option value={Modes.VIEW}>モード1：語句・意味・例文を表示</option>
+                <option value={Modes.VIEW}>モード1：語句・読み・意味・例文</option>
                 <option value={Modes.MCQ}>モード2：意味→語句（10択）</option>
-                <option value={Modes.FILL}>モード3：例文穴埋め</option>
+                <option value={Modes.CLOZE}>モード3：例文穴埋め</option>
               </select>
             </div>
           </header>
 
-          <section className="text-xs text-slate-500">
-            使用中データセット：{currentDatasetLabel}
-          </section>
-
-          <main className="rounded-2xl border bg-white p-6 shadow-sm min-h-[200px]">
-            {loading && (
-              <div className="text-slate-600">データ読み込み中…</div>
+          <main className="rounded-2xl border bg-white p-6 shadow-sm min-h-[320px]">
+            {mode === Modes.VIEW && (
+              <ModeView items={activeItems} />
             )}
-
-            {!loading && error && (
-              <div className="text-red-700 whitespace-pre-wrap">
-                読み込みエラー：{error}
-                <div className="mt-2 text-xs text-slate-500">
-                  ・<code>{currentDatasetLabel}</code> 用の JSON ファイルが存在するか確認してください。<br/>
-                  ・パス：<code>{DATASETS.find(d=>d.id===datasetId)?.path}</code>
-                </div>
-              </div>
+            {mode === Modes.MCQ && (
+              <ModeMCQ items={activeItems} />
             )}
-
-            {!loading && !error && data && (
-              <>
-                {mode === Modes.VIEW && <ModeView items={activeItems} />}
-                {mode === Modes.MCQ && <ModeMCQ items={activeItems} />}
-                {mode === Modes.FILL && <ModeFill items={activeItems} />}
-              </>
+            {mode === Modes.CLOZE && (
+              <ModeCloze items={activeItems} />
             )}
           </main>
 
@@ -248,25 +237,35 @@
       );
     }
 
-    // ========= モード1：閲覧（語句＋読み＋意味＋例文）=========
+    // ================== モード1：閲覧（語句＋読み＋意味＋例文） ==================
     function ModeView({ items }) {
-      const [i, setI] = useState(0);
+      const [idx, setIdx] = useState(0);
       const total = items.length;
+
+      useEffect(() => {
+        // items が変わったらリセット
+        setIdx(0);
+      }, [items]);
 
       if (!total) {
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
 
-      const cur = items[i];
+      const cur = items[idx];
+
+      const goPrev = () => {
+        setIdx(v => (v - 1 < 0 ? total - 1 : v - 1));
+      };
+
+      const goNext = () => {
+        setIdx(v => (v + 1 >= total ? 0 : v + 1));
+      };
 
       return (
         <div className="grid gap-6">
           <div className="flex items-center gap-2 text-sm">
             <span className="px-2 py-1 rounded-full bg-slate-100">
-              項目 {i + 1} / {total}
-            </span>
-            <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">
-              全{total}件
+              項目 {idx + 1} / {total}
             </span>
           </div>
 
@@ -275,19 +274,16 @@
               <div className="text-xs text-slate-500">語句</div>
               <div className="text-3xl md:text-4xl font-extrabold">{cur.term}</div>
             </div>
-
             {cur.reading && (
               <div>
                 <div className="text-xs text-slate-500">読み</div>
-                <div className="text-lg md:text-xl">{cur.reading}</div>
+                <div className="text-xl md:text-2xl">{cur.reading}</div>
               </div>
             )}
-
             <div>
               <div className="text-xs text-slate-500">意味</div>
               <div className="text-lg md:text-xl">{cur.meaning}</div>
             </div>
-
             {cur.example && (
               <div>
                 <div className="text-xs text-slate-500">例文</div>
@@ -298,14 +294,14 @@
 
           <div className="flex items-center justify-between">
             <button
-              className="px-4 py-2 rounded-xl border bg-white"
-              onClick={() => setI((v) => (v - 1 < 0 ? total - 1 : v - 1))}
+              className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50"
+              onClick={goPrev}
             >
               ← 前へ
             </button>
             <button
-              className="px-4 py-2 rounded-xl bg-slate-900 text-white"
-              onClick={() => setI((v) => (v + 1 >= total ? 0 : v + 1))}
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+              onClick={goNext}
             >
               次へ →
             </button>
@@ -314,25 +310,36 @@
       );
     }
 
-    // ========= モード2：10択クイズ =========
+    // ================== モード2：10択クイズ ==================
     function ModeMCQ({ items }) {
-      const [order, setOrder] = useState(() =>
-        shuffle(items.map((_, i) => i))
-      );
+      const [order, setOrder] = useState([]);
       const [qIdx, setQIdx] = useState(0);
-      const [selected, setSelected] = useState(null);
-      const [correct, setCorrect] = useState(null);
+      const [selectedIdx, setSelectedIdx] = useState(null);
+      const [isCorrect, setIsCorrect] = useState(null);
       const [score, setScore] = useState(0);
+      const [answeredCount, setAnsweredCount] = useState(0);
+      const nextButtonRef = useRef(null);
 
       useEffect(() => {
-        setOrder(shuffle(items.map((_, i) => i)));
+        if (!items || !items.length) {
+          setOrder([]);
+          setQIdx(0);
+          setSelectedIdx(null);
+          setIsCorrect(null);
+          setScore(0);
+          setAnsweredCount(0);
+          return;
+        }
+        const idxs = items.map((_, i) => i);
+        setOrder(shuffle(idxs));
         setQIdx(0);
-        setSelected(null);
-        setCorrect(null);
+        setSelectedIdx(null);
+        setIsCorrect(null);
         setScore(0);
+        setAnsweredCount(0);
       }, [items]);
 
-      const total = items.length;
+      const total = order.length;
       if (!total) {
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
@@ -340,50 +347,54 @@
       const currentIndex = order[qIdx];
       const current = items[currentIndex];
 
-      const buildOptions = () => {
-        const indices = items.map((_, i) => i);
-        const others = indices.filter((i) => i !== currentIndex);
-        const distractors = shuffle(others).slice(0, 9);
-        return shuffle([currentIndex].concat(distractors));
-      };
-      const optionIndices = buildOptions();
+      // 選択肢（10個）作成
+      const optionIndices = useMemo(() => {
+        const allIdx = items.map((_, i) => i);
+        const others = allIdx.filter(i => i !== currentIndex);
+        const needed = Math.max(0, 9); // 残り9個
+        const distractors = shuffle(others).slice(0, Math.min(needed, others.length));
+        const list = [currentIndex].concat(distractors);
+        return shuffle(list);
+      }, [items, currentIndex]);
 
-      const goNext = () => {
-        setSelected(null);
-        setCorrect(null);
-        setQIdx((v) => (v + 1 >= order.length ? 0 : v + 1));
-      };
-
-      const submit = (idx) => {
-        if (correct !== null) return;
-        setSelected(idx);
-        const ok = idx === currentIndex;
-        setCorrect(ok);
-        if (ok) setScore((s) => s + 1);
-      };
-
-      // Enterキーで「次の問題へ」
+      // Enter で次の問題へ
       useEffect(() => {
         const handler = (e) => {
-          if (e.key === "Enter" && selected !== null) {
+          if (e.key === "Enter" && selectedIdx !== null && nextButtonRef.current) {
             e.preventDefault();
-            goNext();
+            nextButtonRef.current.click();
           }
         };
         window.addEventListener("keydown", handler);
         return () => window.removeEventListener("keydown", handler);
-      }, [selected, order.length]);
+      }, [selectedIdx]);
 
-      const chosenItem = selected !== null ? items[selected] : null;
+      const handleSelect = (idx) => {
+        if (selectedIdx !== null) return; // 既に回答済み
+        setSelectedIdx(idx);
+        const ok = idx === currentIndex;
+        setIsCorrect(ok);
+        setAnsweredCount(c => c + 1);
+        if (ok) setScore(s => s + 1);
+      };
+
+      const handleNext = () => {
+        setSelectedIdx(null);
+        setIsCorrect(null);
+        setQIdx(v => (v + 1 >= order.length ? 0 : v + 1));
+      };
+
+      const chosenItem = selectedIdx !== null ? items[selectedIdx] : null;
+      const correctItem = current;
 
       return (
         <div className="grid gap-6">
           <div className="flex items-center gap-2 text-sm">
             <span className="px-2 py-1 rounded-full bg-slate-100">
-              問題 {qIdx + 1} / {order.length}
+              問題 {qIdx + 1} / {total}
             </span>
             <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">
-              正答 {score} / {qIdx + (correct !== null ? 1 : 0)}
+              正答 {score} / {answeredCount}
             </span>
           </div>
 
@@ -395,22 +406,25 @@
           <ol className="grid md:grid-cols-2 gap-3">
             {optionIndices.map((idx, i) => {
               const term = items[idx].term;
-              const isChosen = selected !== null && idx === selected;
-              const isAnswer = selected !== null && idx === currentIndex;
-              let cls = "w-full text-left px-4 py-3 rounded-xl border transition ";
-              if (isAnswer) {
-                cls += "bg-emerald-50 border-emerald-300";
+              const isChosen = selectedIdx !== null && idx === selectedIdx;
+              const isAnswer = selectedIdx !== null && idx === currentIndex;
+              let className = "w-full text-left px-4 py-3 rounded-xl border transition ";
+              if (selectedIdx === null) {
+                className += "bg-white hover:bg-slate-50 border-slate-300";
+              } else if (isAnswer) {
+                className += "bg-emerald-50 border-emerald-300";
               } else if (isChosen) {
-                cls += "bg-rose-50 border-rose-300";
+                className += "bg-rose-50 border-rose-300";
               } else {
-                cls += "bg-white hover:bg-slate-50 border-slate-300";
+                className += "bg-white border-slate-200 opacity-70";
               }
+
               return (
                 <li key={i}>
                   <button
-                    className={cls}
-                    onClick={() => submit(idx)}
-                    disabled={selected !== null}
+                    className={className}
+                    onClick={() => handleSelect(idx)}
+                    disabled={selectedIdx !== null}
                   >
                     <span className="mr-2 font-mono text-slate-500">
                       {String.fromCharCode(65 + i)}.
@@ -422,43 +436,57 @@
             })}
           </ol>
 
-          {selected !== null && (
-            <div className="rounded-xl border p-4 bg-slate-50">
-              <div className={"font-bold " + (correct ? "text-emerald-700" : "text-rose-700")}>
-                {correct ? "正解！" : "不正解"}
+          {selectedIdx !== null && (
+            <div className="rounded-xl border p-4 bg-slate-50 text-sm">
+              <div className={"font-bold " + (isCorrect ? "text-emerald-700" : "text-rose-700")}>
+                {isCorrect ? "正解！" : "不正解"}
               </div>
 
-              <div className="mt-2 text-sm text-slate-700 space-y-1">
-                {/* 正解情報 */}
-                <div>
-                  正解：<span className="font-semibold">{current.term}</span>
+              {/* 正解の情報 */}
+              <div className="mt-2">
+                <div className="text-xs text-slate-500">正解</div>
+                <div className="font-semibold text-lg">
+                  {correctItem.term}
+                  {correctItem.reading && (
+                    <span className="ml-2 text-sm text-slate-600">（{correctItem.reading}）</span>
+                  )}
                 </div>
-                <div>
-                  正解の意味：{current.meaning}</div>
-
-                {/* 間違えたときだけ、自分が選んだ語句の意味も表示 */}
-                {!correct && chosenItem && (
-                  <>
-                    <div className="mt-2">
-                      あなたが選んだ語句：<span className="font-semibold">{chosenItem.term}</span>
-                    </div>
-                    <div>その意味：{chosenItem.meaning}</div>
-                  </>
-                )}
-
-                {current.example && (
-                  <div className="mt-2">
-                    例文：{current.example}
-                  </div>
-                )}
+                <div className="text-slate-700 mt-1">
+                  意味：{correctItem.meaning}
+                </div>
               </div>
 
-              <div className="mt-3">
+              {/* 間違えた場合：自分が選んだ語句の意味も表示 */}
+              {!isCorrect && chosenItem && (
+                <div className="mt-3">
+                  <div className="text-xs text-slate-500">あなたが選んだ語句</div>
+                  <div className="font-semibold">
+                    {chosenItem.term}
+                    {chosenItem.reading && (
+                      <span className="ml-2 text-sm text-slate-600">（{chosenItem.reading}）</span>
+                    )}
+                  </div>
+                  <div className="text-slate-700 mt-1">
+                    意味：{chosenItem.meaning}
+                  </div>
+                </div>
+              )}
+
+              {/* 例文（正解の） */}
+              {correctItem.example && (
+                <div className="mt-3 text-slate-700">
+                  <span className="font-medium">例文：</span>
+                  {correctItem.example}
+                </div>
+              )}
+
+              <div className="mt-4">
                 <button
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white"
-                  onClick={goNext}
+                  ref={nextButtonRef}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                  onClick={handleNext}
                 >
-                  次の問題へ →（Enterでも可）
+                  次の問題へ →（Enter でも可）
                 </button>
               </div>
             </div>
@@ -467,27 +495,40 @@
       );
     }
 
-    // ========= モード3：例文穴埋め =========
-    function ModeFill({ items }) {
-      const [order, setOrder] = useState(() =>
-        shuffle(items.map((_, i) => i))
-      );
+    // ================== モード3：例文穴埋め ==================
+    function ModeCloze({ items }) {
+      const [order, setOrder] = useState([]);
       const [qIdx, setQIdx] = useState(0);
       const [input, setInput] = useState("");
-      const [feedback, setFeedback] = useState(null); // {correct, item}
-      const [score, setScore] = useState(0);
-      const [tried, setTried] = useState(0);
+      const [phase, setPhase] = useState("typing"); // "typing" or "result"
+      const [isCorrect, setIsCorrect] = useState(null);
+      const inputRef = useRef(null);
+      const nextButtonRef = useRef(null);
 
       useEffect(() => {
-        setOrder(shuffle(items.map((_, i) => i)));
+        if (!items || !items.length) {
+          setOrder([]);
+          setQIdx(0);
+          setInput("");
+          setPhase("typing");
+          setIsCorrect(null);
+          return;
+        }
+        const idxs = items.map((_, i) => i);
+        setOrder(shuffle(idxs)); // ランダム順
         setQIdx(0);
         setInput("");
-        setFeedback(null);
-        setScore(0);
-        setTried(0);
+        setPhase("typing");
+        setIsCorrect(null);
       }, [items]);
 
-      const total = items.length;
+      useEffect(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, [qIdx, phase]);
+
+      const total = order.length;
       if (!total) {
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
@@ -495,109 +536,122 @@
       const currentIndex = order[qIdx];
       const current = items[currentIndex];
 
-      const handleSubmit = () => {
-        if (!current) return;
-        const ans = (current.term || "").replace(/\s/g, "");
+      const clozeSentence = makeClozeSentence(current.example || "", current.term);
+
+      const checkAnswer = () => {
         const user = (input || "").replace(/\s/g, "");
-        const ok = user === ans;
-        setFeedback({ correct: ok, item: current });
-        setTried((n) => n + 1);
-        if (ok) setScore((s) => s + 1);
+        const ans = (current.term || "").replace(/\s/g, "");
+        const ok = user.length > 0 && user === ans;
+        setIsCorrect(ok);
+        setPhase("result");
       };
 
-      const nextQ = () => {
-        setFeedback(null);
+      const nextQuestion = () => {
         setInput("");
-        setQIdx((v) => (v + 1 >= order.length ? 0 : v + 1));
+        setPhase("typing");
+        setIsCorrect(null);
+        setQIdx(v => (v + 1 >= order.length ? 0 : v + 1));
       };
 
-      const blankExample = makeBlankExample(current.example || "", current.term);
+      const handleKeyDown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (phase === "typing") {
+            checkAnswer(); // 1回目の Enter → 判定
+          } else {
+            nextQuestion(); // 2回目の Enter → 次の問題へ
+          }
+        }
+      };
+
+      // ここでは window レベルの Enter は追加処理していないが、
+      // input の onKeyDown で 2段階 Enter を制御している。
+      useEffect(() => {
+        const handler = () => {};
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+      }, [phase]);
 
       return (
         <div className="grid gap-6">
           <div className="flex items-center gap-2 text-sm">
             <span className="px-2 py-1 rounded-full bg-slate-100">
-              問題 {qIdx + 1} / {order.length}
+              問題 {qIdx + 1} / {total}
             </span>
-            <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">
-              正答 {score} / {tried}
+            <span className="ml-auto text-xs text-slate-500">
+              Enter 1回目：判定 ／ Enter 2回目：次の問題へ
             </span>
           </div>
 
-          {/* ★ 入るべき語句の意味を事前に表示 */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-            <div className="text-xs text-slate-500 mb-1">ヒント（語句の意味）</div>
-            <div>{current.meaning}</div>
-          </div>
-
-          <div>
-            <div className="text-xs text-slate-500">例文（空欄に入る語句を入力）</div>
-            <div className="text-base md:text-lg leading-relaxed mt-1">
-              {blankExample}
+          <div className="grid gap-3">
+            <div>
+              <div className="text-xs text-slate-500">例文（空欄部分に語句が入る）</div>
+              <div className="text-base md:text-lg leading-relaxed">
+                {clozeSentence}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">語句の意味</div>
+              <div className="text-sm md:text-base text-slate-800">
+                {current.meaning}
+              </div>
             </div>
           </div>
 
           <div className="grid gap-2">
-            <label className="text-sm text-slate-600">
-              語句を入力（Enter 1回目で判定、2回目で次の問題）
+            <label className="grid gap-2">
+              <span className="text-sm text-slate-600">空欄に入る語句（漢字で入力）</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-4 focus:ring-slate-100"
+                placeholder="語句を入力（例：気休め）"
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
             </label>
-            <input
-              type="text"
-              className="px-4 py-3 rounded-xl border border-slate-300 focus:outline-none
-                         focus:ring-4 focus:ring-slate-100"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (!feedback) {
-                    // 1回目の Enter：判定
-                    handleSubmit();
-                  } else {
-                    // 2回目の Enter：次の問題へ
-                    nextQ();
-                  }
-                }
-              }}
-            />
-          </div>
 
-          {!feedback && (
-            <div>
+            <div className="flex items-center gap-3 mt-2">
               <button
-                className="px-4 py-2 rounded-xl bg-slate-900 text-white"
-                onClick={handleSubmit}
+                className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                onClick={phase === "typing" ? checkAnswer : nextQuestion}
+                ref={phase === "result" ? nextButtonRef : null}
               >
-                判定（Enter 1回目）
+                {phase === "typing" ? "判定（Enter 一回目）" : "次の問題へ（Enter 二回目）"}
               </button>
             </div>
-          )}
+          </div>
 
-          {feedback && (
-            <div className="rounded-xl border p-4 bg-slate-50">
-              <div className={"font-bold " + (feedback.correct ? "text-emerald-700" : "text-rose-700")}>
-                {feedback.correct ? "正解！" : "不正解"}
+          {phase === "result" && (
+            <div className="mt-4 rounded-xl border p-4 bg-slate-50 text-sm">
+              <div className={"font-bold " + (isCorrect ? "text-emerald-700" : "text-rose-700")}>
+                {isCorrect ? "正解！" : "不正解"}
               </div>
-              <div className="mt-2 text-sm text-slate-700">
-                <div>
-                  正解：<span className="font-semibold">{feedback.item.term}</span>
+              <div className="mt-2">
+                <div className="text-xs text-slate-500">正解の語句</div>
+                <div className="font-semibold text-lg">
+                  {current.term}
+                  {current.reading && (
+                    <span className="ml-2 text-sm text-slate-600">（{current.reading}）</span>
+                  )}
                 </div>
-                <div className="mt-1">
-                  意味：{feedback.item.meaning}
+                <div className="mt-1 text-slate-700">
+                  意味：{current.meaning}
                 </div>
-                {feedback.item.example && (
-                  <div className="mt-2">
-                    例文：{feedback.item.example}
-                  </div>
-                )}
               </div>
-              <div className="mt-3">
-                <button
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white"
-                  onClick={nextQ}
-                >
-                  次の問題へ →（Enter 2回目でも可）
-                </button>
+              {current.example && (
+                <div className="mt-3 text-slate-700">
+                  <span className="font-medium">例文（元の文）：</span>
+                  {current.example}
+                </div>
+              )}
+              <div className="mt-3 text-xs text-slate-500">
+                Enter をもう一度押すと、次の問題に進みます。
               </div>
             </div>
           )}
@@ -605,6 +659,7 @@
       );
     }
 
+    // ================== React 起動 ==================
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<App />);
   </script>
