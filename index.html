@@ -7,7 +7,7 @@
 
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>5語句学習アプリ</title>
+  <title>語句学習アプリ</title>
 
   <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -26,7 +26,7 @@
     const Modes = { VIEW: "VIEW", MCQ: "MCQ", CLOZE: "CLOZE" };   // モード1/2/3
     const Groups = { DAY: "DAY", WEEK: "WEEK" };
 
-    // 利用する JSON ファイル一覧（必要ならここに追加）
+    // 利用する JSON ファイル一覧
     const DATASETS = [
       { id: "week1",  label: "Week 1",  path: "./data/week1.json" },
       { id: "week2",  label: "Week 2",  path: "./data/week2.json" },
@@ -113,12 +113,12 @@
         }));
       }, [data]);
 
-      // 出題範囲（items）を決定（week.items は使わない）
+      // 出題範囲（items）を決定
       const activeItems = useMemo(() => {
         if (!data || !Array.isArray(data.days)) return [];
 
         if (group === Groups.WEEK) {
-          // 週ごと：全DAYの items をまとめる（week.items は使わない）
+          // 週ごと：全DAYの items をまとめる
           const all = [];
           for (let i = 0; i < data.days.length; i++) {
             const d = data.days[i];
@@ -252,7 +252,9 @@
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
 
-      const cur = safeItems[idx];
+      // インデックスの安全チェック
+      const current = safeItems[idx] || safeItems[0];
+      if (!current) return null;
 
       const goPrev = () => {
         setIdx(v => (v - 1 < 0 ? total - 1 : v - 1));
@@ -273,22 +275,22 @@
           <div className="grid gap-4">
             <div>
               <div className="text-xs text-slate-500">語句</div>
-              <div className="text-3xl md:text-4xl font-extrabold">{cur.term}</div>
+              <div className="text-3xl md:text-4xl font-extrabold">{current.term}</div>
             </div>
-            {cur.reading && (
+            {current.reading && (
               <div>
                 <div className="text-xs text-slate-500">読み</div>
-                <div className="text-xl md:text-2xl">{cur.reading}</div>
+                <div className="text-xl md:text-2xl">{current.reading}</div>
               </div>
             )}
             <div>
               <div className="text-xs text-slate-500">意味</div>
-              <div className="text-lg md:text-xl">{cur.meaning}</div>
+              <div className="text-lg md:text-xl">{current.meaning}</div>
             </div>
-            {cur.example && (
+            {current.example && (
               <div>
                 <div className="text-xs text-slate-500">例文</div>
-                <div className="text-base leading-relaxed">{cur.example}</div>
+                <div className="text-base leading-relaxed">{current.example}</div>
               </div>
             )}
           </div>
@@ -311,7 +313,7 @@
       );
     }
 
-    // ================== モード2：10択クイズ ==================
+    // ================== モード2：10択クイズ（修正版） ==================
     function ModeMCQ({ items }) {
       const safeItems = Array.isArray(items) ? items : [];
       const [order, setOrder] = useState([]);
@@ -322,6 +324,7 @@
       const [answeredCount, setAnsweredCount] = useState(0);
       const nextButtonRef = useRef(null);
 
+      // 初期化処理
       useEffect(() => {
         if (!safeItems.length) {
           setOrder([]);
@@ -339,21 +342,40 @@
         setIsCorrect(null);
         setScore(0);
         setAnsweredCount(0);
-      }, [items]);
+      }, [items]); // itemsの参照が変わった時にリセット
 
       const total = order.length;
       if (!total) {
+        if (safeItems.length > 0) return <div>準備中...</div>; // itemsはあるがorder未生成時
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
 
+      // 現在の問題インデックスを取得
       const currentIndex = order[qIdx];
-      const current = safeItems[currentIndex];
+      
+      // 【修正点】: 安全装置
+      // データ切り替え直後など、古いorderが新しいsafeItemsの範囲外を指す場合は描画しない
+      if (currentIndex === undefined || currentIndex >= safeItems.length) {
+        return <div>読み込み中...</div>;
+      }
 
-      // 選択肢（10個まで）を作成（useMemo をやめてシンプルに）
-      const allIdx = safeItems.map((_, i) => i);
-      const others = allIdx.filter(i => i !== currentIndex);
-      const distractors = shuffle(others).slice(0, Math.min(9, others.length)); // 残り最大9
-      const optionIndices = shuffle([currentIndex].concat(distractors));
+      const current = safeItems[currentIndex];
+      // 万が一 current が undefined の場合もガード
+      if (!current) {
+         return <div>データ読み込みエラー</div>;
+      }
+
+      // 【修正点】: 選択肢を useMemo で固定化
+      // レンダリング毎（回答時など）にシャッフルされるのを防ぐため、
+      // current（問題）か items が変わった時だけ再計算する。
+      const optionIndices = useMemo(() => {
+        const allIdx = safeItems.map((_, i) => i);
+        const others = allIdx.filter(i => i !== currentIndex);
+        // ダミーを選択
+        const distractors = shuffle(others).slice(0, Math.min(9, others.length));
+        // 正解とダミーを混ぜて返す
+        return shuffle([currentIndex].concat(distractors));
+      }, [currentIndex, safeItems]);
 
       const handleSelect = (idx) => {
         if (selectedIdx !== null) return; // 既に回答済み
@@ -370,7 +392,7 @@
         setQIdx(v => (v + 1 >= order.length ? 0 : v + 1));
       };
 
-      // 回答後に「次の問題へ」ボタンへフォーカス → Enter で遷移しやすくする
+      // 回答後に「次の問題へ」ボタンへフォーカス
       useEffect(() => {
         if (selectedIdx !== null && nextButtonRef.current) {
           nextButtonRef.current.focus();
@@ -399,7 +421,10 @@
           <ol className="grid md:grid-cols-2 gap-3">
             {optionIndices.map((idx, i) => {
               const item = safeItems[idx];
-              const term = item ? item.term : "";
+              // itemが存在しない場合のガード（念のため）
+              if (!item) return null;
+
+              const term = item.term;
               const isChosen = selectedIdx !== null && idx === selectedIdx;
               const isAnswer = selectedIdx !== null && idx === currentIndex;
               let className = "w-full text-left px-4 py-3 rounded-xl border transition ";
@@ -528,7 +553,13 @@
       }
 
       const currentIndex = order[qIdx];
+      // 安全チェック
+      if (currentIndex === undefined || currentIndex >= safeItems.length) {
+        return <div>読み込み中...</div>;
+      }
+
       const current = safeItems[currentIndex];
+      if (!current) return null;
 
       const clozeSentence = makeClozeSentence(current.example || "", current.term);
 
