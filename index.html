@@ -7,7 +7,7 @@
 
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>4語句学習アプリ</title>
+  <title>語句学習アプリ</title>
 
   <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -239,8 +239,9 @@
 
     // ================== モード1：閲覧（語句＋読み＋意味＋例文） ==================
     function ModeView({ items }) {
+      const safeItems = Array.isArray(items) ? items : [];
       const [idx, setIdx] = useState(0);
-      const total = items.length;
+      const total = safeItems.length;
 
       useEffect(() => {
         // items が変わったらリセット
@@ -251,7 +252,7 @@
         return <div className="text-slate-600">この範囲に項目がありません。</div>;
       }
 
-      const cur = items[idx];
+      const cur = safeItems[idx];
 
       const goPrev = () => {
         setIdx(v => (v - 1 < 0 ? total - 1 : v - 1));
@@ -312,6 +313,7 @@
 
     // ================== モード2：10択クイズ ==================
     function ModeMCQ({ items }) {
+      const safeItems = Array.isArray(items) ? items : [];
       const [order, setOrder] = useState([]);
       const [qIdx, setQIdx] = useState(0);
       const [selectedIdx, setSelectedIdx] = useState(null);
@@ -321,7 +323,7 @@
       const nextButtonRef = useRef(null);
 
       useEffect(() => {
-        if (!items || !items.length) {
+        if (!safeItems.length) {
           setOrder([]);
           setQIdx(0);
           setSelectedIdx(null);
@@ -330,7 +332,7 @@
           setAnsweredCount(0);
           return;
         }
-        const idxs = items.map((_, i) => i);
+        const idxs = safeItems.map((_, i) => i);
         setOrder(shuffle(idxs));
         setQIdx(0);
         setSelectedIdx(null);
@@ -345,29 +347,17 @@
       }
 
       const currentIndex = order[qIdx];
-      const current = items[currentIndex];
+      const current = safeItems[currentIndex];
 
       // 選択肢（10個）作成
       const optionIndices = useMemo(() => {
-        const allIdx = items.map((_, i) => i);
+        const allIdx = safeItems.map((_, i) => i);
         const others = allIdx.filter(i => i !== currentIndex);
         const needed = Math.max(0, 9); // 残り9個
         const distractors = shuffle(others).slice(0, Math.min(needed, others.length));
         const list = [currentIndex].concat(distractors);
         return shuffle(list);
-      }, [items, currentIndex]);
-
-      // Enter で次の問題へ
-      useEffect(() => {
-        const handler = (e) => {
-          if (e.key === "Enter" && selectedIdx !== null && nextButtonRef.current) {
-            e.preventDefault();
-            nextButtonRef.current.click();
-          }
-        };
-        window.addEventListener("keydown", handler);
-        return () => window.removeEventListener("keydown", handler);
-      }, [selectedIdx]);
+      }, [safeItems, currentIndex]);
 
       const handleSelect = (idx) => {
         if (selectedIdx !== null) return; // 既に回答済み
@@ -384,7 +374,14 @@
         setQIdx(v => (v + 1 >= order.length ? 0 : v + 1));
       };
 
-      const chosenItem = selectedIdx !== null ? items[selectedIdx] : null;
+      // 回答後に「次の問題へ」ボタンへフォーカス → Enter で遷移可能
+      useEffect(() => {
+        if (selectedIdx !== null && nextButtonRef.current) {
+          nextButtonRef.current.focus();
+        }
+      }, [selectedIdx]);
+
+      const chosenItem = selectedIdx !== null ? safeItems[selectedIdx] : null;
       const correctItem = current;
 
       return (
@@ -405,7 +402,7 @@
 
           <ol className="grid md:grid-cols-2 gap-3">
             {optionIndices.map((idx, i) => {
-              const term = items[idx].term;
+              const term = safeItems[idx].term;
               const isChosen = selectedIdx !== null && idx === selectedIdx;
               const isAnswer = selectedIdx !== null && idx === currentIndex;
               let className = "w-full text-left px-4 py-3 rounded-xl border transition ";
@@ -497,16 +494,16 @@
 
     // ================== モード3：例文穴埋め ==================
     function ModeCloze({ items }) {
+      const safeItems = Array.isArray(items) ? items : [];
       const [order, setOrder] = useState([]);
       const [qIdx, setQIdx] = useState(0);
       const [input, setInput] = useState("");
       const [phase, setPhase] = useState("typing"); // "typing" or "result"
       const [isCorrect, setIsCorrect] = useState(null);
       const inputRef = useRef(null);
-      const nextButtonRef = useRef(null);
 
       useEffect(() => {
-        if (!items || !items.length) {
+        if (!safeItems.length) {
           setOrder([]);
           setQIdx(0);
           setInput("");
@@ -514,7 +511,7 @@
           setIsCorrect(null);
           return;
         }
-        const idxs = items.map((_, i) => i);
+        const idxs = safeItems.map((_, i) => i);
         setOrder(shuffle(idxs)); // ランダム順
         setQIdx(0);
         setInput("");
@@ -534,7 +531,7 @@
       }
 
       const currentIndex = order[qIdx];
-      const current = items[currentIndex];
+      const current = safeItems[currentIndex];
 
       const clozeSentence = makeClozeSentence(current.example || "", current.term);
 
@@ -563,14 +560,6 @@
           }
         }
       };
-
-      // ここでは window レベルの Enter は追加処理していないが、
-      // input の onKeyDown で 2段階 Enter を制御している。
-      useEffect(() => {
-        const handler = () => {};
-        window.addEventListener("keydown", handler);
-        return () => window.removeEventListener("keydown", handler);
-      }, [phase]);
 
       return (
         <div className="grid gap-6">
@@ -620,7 +609,6 @@
               <button
                 className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
                 onClick={phase === "typing" ? checkAnswer : nextQuestion}
-                ref={phase === "result" ? nextButtonRef : null}
               >
                 {phase === "typing" ? "判定（Enter 一回目）" : "次の問題へ（Enter 二回目）"}
               </button>
